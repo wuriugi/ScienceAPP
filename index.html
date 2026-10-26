@@ -52,6 +52,8 @@ main.em{grid-template-columns:minmax(0,1fr) 300px}
 main.em .palette{display:none}
 .palette{-webkit-overflow-scrolling:touch;overscroll-behavior:contain;background:var(--surface);border:1px solid var(--line);border-radius:18px;padding:8px;overflow-y:auto;display:flex;flex-direction:column;gap:8px;position:relative;z-index:1}
 .palette .ph{font-family:"Jua",sans-serif;font-size:15px;text-align:center;color:var(--muted);padding:2px 0}
+.palette.del{border-color:var(--warn);background:color-mix(in srgb,var(--warn) 9%,var(--surface));box-shadow:inset 0 0 0 2px var(--warn)}
+.palette.del .ph{color:var(--warn)}
 .pitem{display:flex;flex-direction:column;align-items:center;gap:2px;padding:8px 4px 6px;border-radius:14px;background:var(--chip);border:2px solid var(--line);cursor:grab;touch-action:pan-y}
 .pitem:hover{border-color:var(--volt)}
 .pitem:active{cursor:grabbing}
@@ -506,6 +508,8 @@ function renderBoard(){
 let drag=null;
 function insideBoard(e){const r=boardSvg.getBoundingClientRect();return e.clientX>=r.left&&e.clientX<=r.right&&e.clientY>=r.top&&e.clientY<=r.bottom;}
 const nearTrash=p=>Math.hypot(p.x-TRASH.x,p.y-TRASH.y)<55;
+function overPalette(e){if(tab==='em')return false;const r=$('#palette').getBoundingClientRect();return e.clientX>=r.left&&e.clientX<=r.right&&e.clientY>=r.top&&e.clientY<=r.bottom;}
+function setPalDel(on){const P=$('#palette');if(P.classList.contains('del')===on)return;P.classList.toggle('del',on);const ph=P.querySelector('.ph');if(ph){if(on){ph.dataset.t=ph.textContent;ph.textContent='여기에 놓으면 치워요';}else if(ph.dataset.t)ph.textContent=ph.dataset.t;}}
 const freeSpot=()=>({x:560+Math.random()*240,y:300+Math.random()*200});
 const otherTerm=d=>d.w[d.k==='a'?'b':'a'].t;
 function findHolder(S,b){return S.comps.find(h=>h.type==='holder'&&!h.bat&&Math.abs(h.x-b.x)<85&&Math.abs(h.y-b.y)<45);}
@@ -611,11 +615,13 @@ function boardMove(e){
     const dx=p.x-d.px,dy=p.y-d.py;d.px=p.x;d.py=p.y;for(const k of ['a','b']){d.w[k].x+=dx;d.w[k].y+=dy;}
   }
   S.trashHot=nearTrash(p);
+  setPalDel(!d.locked&&overPalette(e));
   renderBoard();
 }
 function boardUp(e){
   const S=st(),d=drag;drag=null;
-  const p=svgPt(boardSvg,e),inB=insideBoard(e);
+  const p=svgPt(boardSvg,e),inB=insideBoard(e),overPal=overPalette(e);
+  setPalDel(false);
   S.hover=null;S.drop=null;S.trashHot=false;S.snap=null;
   if(d.type==='wirebody'){removeWire(S,d.w);toast('전선을 떼어냈어요');update();return;}
   if(d.type==='comp'){
@@ -624,7 +630,7 @@ function boardUp(e){
       if(d.fromPalette){const sp=freeSpot();c.x=sp.x;c.y=sp.y;afterPlace(S,c);}
       else tapComp(S,c);
     }else if(d.locked){}
-    else if((d.fromPalette&&!inB)||nearTrash(p))removeComp(S,c);
+    else if((d.fromPalette&&!inB)||nearTrash(p)||overPal)removeComp(S,c);
     else{
       c.x=clamp(c.x,50,1150);c.y=clamp(c.y,80,715);
       const sn=findSnap(S,c);
@@ -632,12 +638,12 @@ function boardUp(e){
       afterPlace(S,c);
     }
   }else if(d.type==='clip'||d.type==='newwire'){
-    if(nearTrash(p))removeWire(S,d.w);
+    if(nearTrash(p)||overPal)removeWire(S,d.w);
     else if(d.type==='newwire'&&!d.moved)removeWire(S,d.w);
     else{const t=nearestTerm(S,d.end,otherTerm(d));if(t)d.end.t=t;else{d.end.x=clamp(d.end.x,20,1180);d.end.y=clamp(d.end.y,20,700);}}
   }else if(d.type==='wire2'){
     if(!d.moved){const sp=freeSpot();d.w.a.x=sp.x-45;d.w.a.y=sp.y;d.w.b.x=sp.x+45;d.w.b.y=sp.y;toast('집게를 부품의 동그란 단자에 끌어다 물려 보세요');}
-    else if((d.fromPalette&&!inB)||nearTrash(p))removeWire(S,d.w);
+    else if((d.fromPalette&&!inB)||nearTrash(p)||overPal)removeWire(S,d.w);
     else for(const k of ['a','b']){const t=nearestTerm(S,d.w[k],null);if(t)d.w[k].t=t;}
   }
   update();
@@ -961,7 +967,7 @@ const HOW=`<details class="sec how"><summary>사용 방법</summary><ul>
 <li>스위치를 누르면 켜지고 꺼져요. 끼운 전지를 누르면 방향이 바뀌어요.</li>
 <li>전선의 가운데 부분을 한 번 누르면 전선이 통째로 떨어져요. 누른 채 끌면 전선을 옮길 수 있어요.</li>
 <li>전지 끼우개, 전구 끼우개, 스위치는 양 끝의 극끼리 가까이 대면 전선 없이 바로 붙어요.</li>
-<li>필요 없는 것은 오른쪽 아래 휴지통으로 끌어다 버려요. 실수했으면 ↶ 되돌리기를 눌러요.</li></ul></details>`;
+<li>필요 없는 것은 왼쪽 부품 상자나 오른쪽 아래 휴지통으로 끌어다 놓으면 치워져요. 실수했으면 ↶ 되돌리기를 눌러요.</li></ul></details>`;
 function buildPanel(){
   const P=$('#panel');
   if(tab==='circuit'){
