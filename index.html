@@ -470,8 +470,8 @@ function presetConductor(S){
   clearState(S);
   const h=addComp(S,'holder',330,600,{bat:{flip:false}}),s=addComp(S,'switch',330,330,{on:true}),b=addComp(S,'bulbholder',620,300,{bulb:true});
   addWire(S,T(h,0),T(s,0),'#2b2d31');addWire(S,T(s,1),T(b,0),'#2b2d31');
-  const wa=addWire(S,T(b,1),{t:null,x:800,y:600},'#e5484d');wa.test=1;
-  const wb=addWire(S,T(h,1),{t:null,x:940,y:600},'#e5484d');wb.test=2;
+  const wa=addWire(S,T(b,1),{t:null,x:800,y:600},'#e5484d');wa.test=1;wa.rest={x:800,y:600};
+  const wb=addWire(S,T(h,1),{t:null,x:940,y:600},'#e5484d');wb.test=2;wb.rest={x:940,y:600};
 }
 
 /* ================= 회로 그리기 ================= */
@@ -517,6 +517,21 @@ boardSvg.addEventListener('pointerdown',e=>{
   e.preventDefault();ensureAudio();
   try{boardSvg.setPointerCapture(e.pointerId);}catch(_){}
   const S=st(),p=svgPt(boardSvg,e),k=el.dataset.kind,base={sx:e.clientX,sy:e.clientY,moved:false};
+  if(tab==='conductor'){
+    // 집게나 단자를 눌러도 그 물체를 집은 것으로 처리, 전선은 움직이지 않음
+    let mat=null;
+    if(k==='term'||k==='clip'){
+      let t=k==='term'?el.dataset.term:null;
+      if(k==='clip'){const w=S.wires.find(x=>x.id===el.dataset.w);t=w&&w[el.dataset.end].t;}
+      const c=t&&S.comps.find(x=>x.id===t.split(':')[0]);
+      if(c&&c.type==='material')mat=c;else return;
+    }else if(k==='wire')return;
+    else if(k==='comp'){const c=S.comps.find(x=>x.id===el.dataset.id);if(!c)return;if(c.type==='material')mat=c;else{drag={...base,type:'comp',comp:c,locked:true};return;}}
+    pushHist(S);
+    S.comps=S.comps.filter(x=>x!==mat);S.comps.push(mat);
+    drag={...base,type:'comp',comp:mat,ox:p.x-mat.x,oy:p.y-mat.y};
+    return;
+  }
   pushHist(S);
   if(k==='wire'){
     const w=S.wires.find(x=>x.id===el.dataset.w);if(!w)return;
@@ -580,6 +595,8 @@ function boardMove(e){
   if(!d.moved&&Math.hypot(e.clientX-d.sx,e.clientY-d.sy)>7)d.moved=true;
   if(!d.moved)return;
   if(d.type==='comp'){
+    if(d.locked)return;
+    if(tab==='conductor'&&d.comp.type==='material'&&!d.detached){d.detached=true;detachTest(S,d.comp);}
     d.comp.x=p.x-d.ox;d.comp.y=p.y-d.oy;S.drop=null;
     if(d.comp.type==='battery'){const h=findHolder(S,d.comp);S.drop=h?h.id:null;}
     if(d.comp.type==='bulb'){const h=findBulbHolder(S,d.comp);S.drop=h?h.id:null;}
@@ -606,7 +623,8 @@ function boardUp(e){
     if(!d.moved){
       if(d.fromPalette){const sp=freeSpot();c.x=sp.x;c.y=sp.y;afterPlace(S,c);}
       else tapComp(S,c);
-    }else if((d.fromPalette&&!inB)||nearTrash(p))removeComp(S,c);
+    }else if(d.locked){}
+    else if((d.fromPalette&&!inB)||nearTrash(p))removeComp(S,c);
     else{
       c.x=clamp(c.x,50,1150);c.y=clamp(c.y,80,715);
       const sn=findSnap(S,c);
@@ -635,9 +653,12 @@ function afterPlace(S,c){
     else toast('전구를 전구 끼우개 위로 끌어다 놓으면 끼워져요');
   }else if(c.type==='material'&&tab==='conductor')autoAttach(S,c);
 }
+function detachTest(S,c){
+  for(const w of S.wires)if(w.test&&w.rest&&w.b.t&&w.b.t.split(':')[0]===c.id)w.b={t:null,x:w.rest.x,y:w.rest.y};
+}
 function autoAttach(S,c){
-  if(!(c.x>ZONE.x&&c.x<ZONE.x+ZONE.w&&c.y>ZONE.y&&c.y<ZONE.y+ZONE.h))return;
-  for(const o of [...S.comps])if(o!==c&&o.type==='material'&&o.x>ZONE.x-30&&o.x<ZONE.x+ZONE.w+30&&o.y>ZONE.y-30&&o.y<ZONE.y+ZONE.h+30)removeComp(S,o);
+  if(!(c.x>ZONE.x-40&&c.x<ZONE.x+ZONE.w+40&&c.y>ZONE.y-40&&c.y<ZONE.y+ZONE.h+40))return;
+  for(const o of [...S.comps])if(o!==c&&o.type==='material'&&o.x>ZONE.x-50&&o.x<ZONE.x+ZONE.w+50&&o.y>ZONE.y-50&&o.y<ZONE.y+ZONE.h+50){detachTest(S,o);removeComp(S,o);}
   c.x=ZONE.cx;c.y=ZONE.cy;
   const ta=S.wires.find(w=>w.test===1),tb=S.wires.find(w=>w.test===2);
   if(ta)ta.b.t=c.id+':0';if(tb)tb.b.t=c.id+':1';
@@ -916,7 +937,7 @@ function syncEmPanel(){
 /* ================= 부품 상자와 오른쪽 안내판 ================= */
 const PAL={
   circuit:[['holder'],['battery'],['bulbholder'],['bulb'],['switch'],['wire'],['motor'],['buzzer']],
-  conductor:Object.keys(MAT).map(m=>['material',m]).concat([['wire']])
+  conductor:Object.keys(MAT).map(m=>['material',m])
 };
 const IVB={holder:'-84 -30 168 60',battery:'-58 -20 116 40',bulbholder:'-66 -24 132 56',bulb:'-36 -62 72 100',switch:'-76 -66 152 100',motor:'-64 -64 128 124',buzzer:'-62 -44 124 76',wire:'-62 -10 124 72'};
 function iconSvg(type,mat){
@@ -961,7 +982,7 @@ function buildPanel(){
     <div class="sec"><h3>실험 결과 기록</h3><table class="res" id="results"></table><div id="resSummary"></div></div>
     <div class="sec"><h3>보기 설정</h3><label class="tg"><input type="checkbox" id="optFlow"> 전류의 흐름 보기</label></div>
     <details class="sec how" open><summary>실험 방법</summary><ol>
-      <li>왼쪽의 물체를 끌어 점선 상자 안에 놓아요.</li><li>집게 두 개가 물체의 양쪽 끝을 물어요.</li><li>전구에 불이 켜지는지 관찰하고 기록을 확인해요.</li></ol></details>
+      <li>왼쪽의 물체를 끌어 점선 상자 안에 놓아요.</li><li>집게 두 개가 물체의 양쪽 끝을 저절로 물어요.</li><li>물체를 다시 집으면 집게가 떨어져요. 다른 물체를 넣어 비교해 보세요.</li><li>전구에 불이 켜지는지 관찰하고 기록을 확인해요.</li></ol></details>
     <button class="wide" id="resetCond">처음부터 다시 하기</button>`;
     $('#resetCond').onclick=()=>{const S=st();pushHist(S);presetConductor(S);S.results={};update();};
   }else{
